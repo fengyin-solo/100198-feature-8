@@ -28,6 +28,33 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class BladeInspectionPayload(BaseModel):
+    """叶片检查提交：裂纹数量、雷击次数按统一口径判定，雷击达阈值须带补充说明。"""
+
+    crack_count: int | None = Field(default=None, alias="裂纹数量")
+    lightning_count: int | None = Field(default=None, alias="雷击次数")
+    note: str | None = Field(default=None, alias="补充说明")
+    inspect_date: str | None = Field(default=None, alias="上次检查日")
+
+    model_config = {"populate_by_name": True}
+
+
+class BladeBackfillPayload(BaseModel):
+    """批量补录历史叶片检查记录：逐条按同一口径重算结论。"""
+
+    records: list[dict[str, Any]] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class BladeBackfillResult(BaseModel):
+    total: int
+    applied_count: int
+    rejected_count: int
+    applied: list[dict[str, Any]] = Field(default_factory=list)
+    rejected: list[dict[str, Any]] = Field(default_factory=list)
+
+
 
 class WindfarmEntry(BaseModel):
     """风电场站明细结构。"""

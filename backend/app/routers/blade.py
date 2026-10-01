@@ -5,7 +5,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import (
+    ActionResult,
+    BladeBackfillPayload,
+    BladeBackfillResult,
+    BladeInspectionPayload,
+    EntryPayload,
+    PageResult,
+)
 from app.services.blade import BladeService
 
 router = APIRouter(prefix="/api/blade", tags=["叶片"])
@@ -30,9 +37,16 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出叶片清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "blade", "total": total, "items": items}
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
-    """读取单条叶片明细；不存在时给出可读的错误说明。"""
+    """读取单条叶片明细，含历次检查的判定依据；不存在时给出可读的错误说明。"""
     entry = service.get_entry(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"叶片 {entry_id} 不存在或已归档")
@@ -41,11 +55,35 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条叶片，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    """登记一条叶片，缺字段或长度不可解析时说明原因而不是静默丢弃。"""
+    entry, missing, errors = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if errors:
+        return ActionResult(ok=False, message="；".join(errors))
     return ActionResult(ok=True, message="叶片已登记", entry=entry)
+
+
+@router.post("/{entry_id}/inspections", response_model=ActionResult)
+def submit_inspection(entry_id: int, payload: BladeInspectionPayload) -> ActionResult:
+    """提交一次叶片检查：结论按长度/裂纹/雷击三项口径判定，雷击达阈值须带补充说明。"""
+    entry, message, basis = service.submit_inspection(
+        entry_id,
+        crack_count=payload.crack_count,
+        lightning_count=payload.lightning_count,
+        note=payload.note,
+        inspect_date=payload.inspect_date,
+    )
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
+
+
+@router.post("/inspections/backfill", response_model=BladeBackfillResult)
+def backfill_inspections(payload: BladeBackfillPayload) -> BladeBackfillResult:
+    """批量补录历史检查记录：同一套口径重算结论，对不上的记录逐条说明原因。"""
+    result = service.backfill_inspections(payload.records)
+    return BladeBackfillResult(**result)
 
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
@@ -56,10 +94,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出叶片清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "blade", "total": total, "items": items}
