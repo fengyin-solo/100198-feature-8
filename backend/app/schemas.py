@@ -19,6 +19,7 @@ class ActionResult(BaseModel):
     ok: bool
     message: str
     entry: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
 
 
 class EntryPayload(BaseModel):
